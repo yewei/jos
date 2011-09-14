@@ -170,11 +170,25 @@ struct {								\
 } while (0)
 
 /*
+ * Clear the link entries for list element "elm".
+ */
+#define LIST_CLEAR(elm, field) do {					\
+	(elm)->field.le_prev = NULL;					\
+	(elm)->field.le_next = NULL;					\
+} while (0)
+
+/*
+ * Returns true if list element "elm" is on some list.
+ */
+#define LIST_ON_LIST(elm, field)	((elm)->field.le_prev != NULL)
+
+/*
  * Insert the element "elm" *after* the element "listelm" which is
  * already in the list.  The "field" name is the link element
  * as above.
  */
 #define	LIST_INSERT_AFTER(listelm, elm, field) do {			\
+	assert(!LIST_ON_LIST((elm), field));				\
 	if ((LIST_NEXT((elm), field) = LIST_NEXT((listelm), field)) != NULL)\
 		LIST_NEXT((listelm), field)->field.le_prev =		\
 		    &LIST_NEXT((elm), field);				\
@@ -188,6 +202,7 @@ struct {								\
  * as above.
  */
 #define	LIST_INSERT_BEFORE(listelm, elm, field) do {			\
+	assert(!LIST_ON_LIST((elm), field));				\
 	(elm)->field.le_prev = (listelm)->field.le_prev;		\
 	LIST_NEXT((elm), field) = (listelm);				\
 	*(listelm)->field.le_prev = (elm);				\
@@ -199,6 +214,7 @@ struct {								\
  * The "field" name is the link element as above.
  */
 #define	LIST_INSERT_HEAD(head, elm, field) do {				\
+	assert(!LIST_ON_LIST((elm), field));				\
 	if ((LIST_NEXT((elm), field) = LIST_FIRST((head))) != NULL)	\
 		LIST_FIRST((head))->field.le_prev = &LIST_NEXT((elm), field);\
 	LIST_FIRST((head)) = (elm);					\
@@ -210,10 +226,13 @@ struct {								\
  * The "field" name is the link element as above.
  */
 #define	LIST_REMOVE(elm, field) do {					\
+	assert(LIST_ON_LIST((elm), field));				\
 	if (LIST_NEXT((elm), field) != NULL)				\
 		LIST_NEXT((elm), field)->field.le_prev = 		\
 		    (elm)->field.le_prev;				\
 	*(elm)->field.le_prev = LIST_NEXT((elm), field);		\
+	(elm)->field.le_prev = NULL;					\
+	(elm)->field.le_next = NULL;					\
 } while (0)
 
 #endif	/* !_SYS_QUEUE_H_ */

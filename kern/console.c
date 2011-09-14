@@ -120,7 +120,7 @@ static uint16_t crt_pos;
 static uint16_t crtsave_buf[CRT_SAVEROWS * CRT_COLS];
 static uint16_t crtsave_pos;
 static int16_t crtsave_backscroll;
-static uint16_t crtsave_size;
+static int16_t crtsave_size;
 #endif
 
 static void
@@ -158,7 +158,7 @@ cga_savebuf_copy(int first_line, bool to_screen)
 	uint16_t *pos = crtsave_buf + (first_line % CRT_SAVEROWS) * CRT_COLS;
 	uint16_t *end = pos + CRT_ROWS * CRT_COLS;
 	// Check for wraparound.
-	uint16_t *trueend = MIN(end, crtsave_buf + CRT_SAVEROWS * CRT_COLS);
+	uint16_t *trueend = min(end, crtsave_buf + CRT_SAVEROWS * CRT_COLS);
 
 	// Copy the initial portion.
 	if (to_screen)
@@ -206,11 +206,11 @@ cga_putc(int c)
 		crt_pos -= (crt_pos % CRT_COLS);
 		break;
 	case '\t':
-		cons_putc(' ');
-		cons_putc(' ');
-		cons_putc(' ');
-		cons_putc(' ');
-		cons_putc(' ');
+		cga_putc(' ');
+		cga_putc(' ');
+		cga_putc(' ');
+		cga_putc(' ');
+		cga_putc(' ');
 		break;
 	default:
 		crt_buf[crt_pos++] = c;		/* write the character */
@@ -247,7 +247,7 @@ cga_putc(int c)
 static void
 cga_scroll(int delta)
 {
-	int new_backscroll = MAX(MIN(crtsave_backscroll - delta, crtsave_size), 0);
+	int new_backscroll = max(min(crtsave_backscroll - delta, (int) crtsave_size), 0);
 
 	if (new_backscroll == crtsave_backscroll)
 		return;

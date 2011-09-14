@@ -41,33 +41,32 @@ typedef int32_t ssize_t;
 typedef int32_t off_t;
 
 
-// Efficient min and max operations
-#define MIN(_a, _b)						\
-({								\
-	typeof(_a) __a = (_a);					\
-	typeof(_b) __b = (_b);					\
-	__a <= __b ? __a : __b;					\
-})
-#define MAX(_a, _b)						\
-({								\
-	typeof(_a) __a = (_a);					\
-	typeof(_b) __b = (_b);					\
-	__a >= __b ? __a : __b;					\
-})
+// min and max operations
+template <typename T>
+T min(T a, T b) {
+	return a <= b ? a : b;
+}
+
+template <typename T>
+T max(T a, T b) {
+	return a >= b ? a : b;
+}
 
 // Rounding operations (efficient when n is a power of 2)
 // Round down to the nearest multiple of n
-#define ROUNDDOWN(a, n)						\
-({								\
-	uint32_t __a = (uint32_t) (a);				\
-	(typeof(a)) (__a - __a % (n));				\
-})
-// Round up to the nearest multiple of n
-#define ROUNDUP(a, n)						\
-({								\
-	uint32_t __n = (uint32_t) (n);				\
-	(typeof(a)) (ROUNDDOWN((uint32_t) (a) + __n - 1, __n));	\
-})
+inline uint32_t round_down(uint32_t a, uint32_t n) {
+	return a - a % n;
+}
+
+template <typename T>
+T *round_down(T *a, uint32_t n) {
+	return (T *) round_down((uintptr_t) a, n);
+}
+
+template <typename T>
+T round_up(T a, uint32_t n) {
+	return round_down(a + n - 1, n);
+}
 
 // Return the offset of 'member' relative to the beginning of a struct type
 #define offsetof(type, member)  ((size_t) (&((type*)0)->member))

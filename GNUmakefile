@@ -67,6 +67,14 @@ QEMU := $(shell if uname | grep -i Darwin >/dev/null 2>&1; \
 	echo "***" 1>&2; exit 1)
 endif
 
+ifdef VNC
+QEMU := $(QEMU) -k en-us -vnc :$(VNC),reverse
+endif
+
+ifdef GDB
+QEMU := $(QEMU) -p $(GDB)
+endif
+
 
 CC	:= $(GCCPREFIX)gcc -pipe
 AS	:= $(GCCPREFIX)as
@@ -136,7 +144,7 @@ clean:
 	rm -rf $(OBJDIR) kern/programs.c
 
 realclean: clean
-	rm -rf lab$(LAB).tar.gz jos.out jos.log
+	rm -rf lab$(LAB).tar.gz jos.in jos.out jos.log
 
 distclean: realclean
 	rm -rf conf/gcc.mk
@@ -153,17 +161,17 @@ tarball: realclean
 # For test runs
 run:
 	$(V)$(MAKE) $(IMAGES)
-	$(QEMU) -no-kqemu -hda obj/kernel.img
+	$(QEMU) -hda obj/kernel.img
 
 run-gdb:
 	$(V)$(MAKE) $(IMAGES)
 	@echo "*** Now run 'gdb'." 1>&2
-	$(QEMU) -no-kqemu -s -S -hda obj/kernel.img
+	$(QEMU) -s -S -hda obj/kernel.img
 
 run-%:
 	$(V)rm -f $(OBJDIR)/kern/init.o $(IMAGES)
 	$(V)$(MAKE) "DEFS=-DTEST=_binary_obj_user_$*_start -DTESTSIZE=_binary_obj_user_$*_size" $(IMAGES)
-	$(QEMU) -no-kqemu -hda obj/kernel.img
+	$(QEMU) -hda obj/kernel.img
 
 which-qemu:
 	@echo $(QEMU)
