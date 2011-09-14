@@ -17,7 +17,7 @@ if gmake --version >/dev/null 2>&1; then make=gmake; else make=make; fi
 pts=5
 timeout=30
 preservefs=n
-readline_hackval=0
+keystrokes=
 qemu=`$make -s --no-print-directory which-qemu`
 
 echo_n () {
@@ -37,69 +37,85 @@ run () {
 	brkaddr=`grep 'readline$' obj/kernel.sym | sed -e's/ .*$//g'`
 	#echo "brkaddr $brkaddr"
 
+	readline_hack=`grep 'readline_hack$' obj/kernel.sym | sed -e's/ .*$//g' | sed -e's/^f//'`
+
 	cp /dev/null jos.in
 	cp /dev/null jos.out
 	echo $qemu -nographic -hda obj/kernel.img -serial null -parallel file:jos.out
-	(
-		ulimit -t $timeout
-		tail -f jos.in | $qemu -nographic -hda obj/kernel.img -serial null -parallel file:jos.out
-	) >$out 2>$err &
 
-	psleep 0.1
-	grep -q "^Welcome to the JOS kernel monitor" <(tail -f jos.out) >/dev/null
-	echo "x" >>jos.in
-	rm jos.in
+	ulimit -t $timeout
+	(
+		grep -q "^Welcome to the JOS kernel monitor" <(tail -f jos.out 2>/dev/null) >/dev/null
+		while [ -n "$keystrokes" ]; do
+			firstchar=`echo "$keystrokes" | sed -e 's/^\(.\).*/\1/'`
+			keystrokes=`echo "$keystrokes" | sed -e 's/^.//'`
+			if [ "$firstchar" = ';' ]; then
+				echo "sendkey ret"
+			elif [ "$firstchar" = ' ' ]; then
+				echo "sendkey spc"
+			else
+				echo "sendkey $firstchar"
+			fi
+			psleep 0.05
+		done
+		echo "quit"
+	) | $qemu -nographic -hda obj/kernel.img -serial null -parallel file:jos.out -monitor stdio >$out
 }
 
 
 
+keystrokes="exit;"
 $make
 run
 
 score=0
 
-	echo_n "Printf: "
-	if grep "6828 decimal is 15254 octal!" jos.out >/dev/null
-	then
-		score=`expr 20 + $score`
-		echo OK
-	else
-		echo WRONG
-	fi
+echo_n "Physical page allocator: "
+ if grep "page_alloc_check() succeeded!" jos.out >/dev/null
+ then
+	score=`expr 15 + $score`
+	echo OK
+ else
+	echo WRONG
+ fi
 
-	echo_n "Backtrace: "
-	cnt=`grep "ebp f01.* eip f01.* args" jos.out | wc -l`
-	if [ $cnt -eq 8 ]
-	then
-		score=`expr 15 + $score`
-		echo_n "Count OK"
-	else
-		echo_n "Count WRONG"
-	fi
+echo_n "Page management: "
+ if grep "page_check() succeeded!" jos.out >/dev/null
+ then
+	score=`expr 20 + $score`
+	echo OK
+ else
+	echo WRONG
+ fi
 
-	cnt=`grep "ebp f01.* eip f01.* args" jos.out | awk 'BEGIN { FS = ORS = " " }
-{ print $7 }
-END { printf("\n") }' | grep '^00000000 00000000 00000001 00000002 00000003 00000004 00000005' | wc -w`
-	if [ $cnt -eq 8 ]; then
-		score=`expr 15 + $score`
-		echo , Args OK
-	else
-		echo , Args WRONG
-	fi
+echo_n "Kernel page directory: "
+ if grep "boot_mem_check() succeeded!" jos.out >/dev/null
+ then
+	score=`expr 15 + $score`
+	echo OK
+ else
+	echo WRONG
+ fi
 
-	echo_n "Debugging symbols: "
-	cnt=`grep "kern/init.c.*test_backtrace.*1 arg)" jos.out | wc -l`
-	if [ $cnt -eq 6 ]; then
-		score=`expr 25 + $score`
-		echo OK
-	else
-		echo WRONG
-	fi
+echo_n "Kernel breakpoint interrupt: "
+ if grep "^TRAP frame at 0x" jos.out >/dev/null \
+     && grep "  trap 0x00000003 Breakpoint" jos.out >/dev/null
+ then
+	score=`expr 10 + $score`
+	echo OK
+ else
+	echo WRONG
+ fi
 
-echo "Score: $score/75"
+echo_n "Returning from breakpoint interrupt: "
+ if grep "Breakpoint succeeded" jos.out >/dev/null
+ then
+	score=`expr 10 + $score`
+	echo OK
+ else
+	echo WRONG
+ fi
 
-if [ $score -lt 75 ]; then
-	exit 1
-fi
+echo "Score: $score/70"
 
 

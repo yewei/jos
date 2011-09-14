@@ -8,6 +8,11 @@
 # For overview and verbose commands, the line should read 'V ='.
 V = @
 
-# '$(HANDIN_EMAIL)' is the email address to which lab handins should be
-# sent.
-HANDIN_EMAIL = kohler@cs.ucla.edu
+# This code lets you run 'make V=1' to turn on verbose commands, or
+# 'make V=0' to turn them off.
+ifeq ($(V),1)
+override V =
+endif
+ifeq ($(V),0)
+override V = @
+endif

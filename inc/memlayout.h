@@ -5,6 +5,7 @@
 #include <inc/types.h>
 #include <inc/queue.h>
 #include <inc/mmu.h>
+#include <inc/assert.h>
 #endif /* not __ASSEMBLER__ */
 
 /*
@@ -158,26 +159,44 @@ extern volatile pte_t vpt[];     // VA of "virtual page table"
 extern volatile pde_t vpd[];     // VA of current page directory
 
 
-/*
- * Page descriptor structures, mapped at UPAGES.
- * Read/write to the kernel, read-only to user programs.
- *
- * Each Page describes one physical page.
- * You can map a Page * to the corresponding physical address
- * with page2pa() in kern/pmap.h.
- */
-LIST_HEAD(Page_list, Page);
-typedef LIST_ENTRY(Page) Page_LIST_entry_t;
+// Page structures.
+// Read/write to the kernel, read-only mapping at UPAGES for user programs.
+//
+// Each Page describes one physical page.
+// The pages[] array keeps track of the state of physical memory.
+// Entry pages[N] holds information about physical page #N.
+// The machine has 'npages' pages of physical memory space.
+#if JOS_KERNEL
+// Page structures.
+extern struct Page *pages;
+extern size_t npages;
+#endif
 
 struct Page {
-	Page_LIST_entry_t pp_link;	/* free list link */
+	// Next page on the free list.
+	Page *pp_next;
 
 	// pp_ref is the count of pointers (usually in page table entries)
-	// to this page, for pages allocated using page_alloc.
-	// Pages allocated at boot time using pmap.c's
-	// boot_alloc do not have valid reference count fields.
-
+	// to this page.  Reserved pages may not have valid reference counts.
 	uint16_t pp_ref;
+
+#if JOS_KERNEL
+	// Returns the physical page number for this page.
+	size_t page_number() const {
+		assert(this >= pages && this < pages + npages);
+		return this - pages;
+	}
+	
+	// Returns a kernel virtual pointer to the corresponding page.
+	void *data() const {
+		return (void *) (KERNBASE + page_number() * PGSIZE);
+	}
+
+	// Returns the physical address for this page.
+	physaddr_t physaddr() const {
+		return page_number() * PGSIZE;
+	}
+#endif
 };
 
 #endif /* !__ASSEMBLER__ */

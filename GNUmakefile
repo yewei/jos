@@ -67,6 +67,14 @@ QEMU := $(shell if uname | grep -i Darwin >/dev/null 2>&1; \
 	echo "***" 1>&2; exit 1)
 endif
 
+ifdef VNC
+QEMU := $(QEMU) -k en-us -vnc :$(VNC),reverse
+endif
+
+ifdef GDB
+QEMU := $(QEMU) -p $(GDB)
+endif
+
 
 CC	:= $(GCCPREFIX)gcc -pipe
 AS	:= $(GCCPREFIX)as
@@ -136,7 +144,7 @@ clean:
 	rm -rf $(OBJDIR) kern/programs.c
 
 realclean: clean
-	rm -rf lab$(LAB).tar.gz jos.out jos.log
+	rm -rf lab$(LAB).tar.gz jos.in jos.out jos.log
 
 distclean: realclean
 	rm -rf conf/gcc.mk
