@@ -28,12 +28,12 @@ extern char bootstack[];	// Lowest addr in boot-time kernel stack
 // we must duplicate the segments for the user and the kernel.
 //
 struct Segdesc gdt[] = {
-	SEG_NULL,				// 0x0 - unused (always faults)
-	SEG(STA_X | STA_R, 0x0, 0xffffffff, 0),	// 0x8 - kernel code segment
-	SEG(STA_W, 0x0, 0xffffffff, 0),		// 0x10 - kernel data segment
-	SEG(STA_X | STA_R, 0x0, 0xffffffff, 3),	// 0x18 - user code segment
-	SEG(STA_W, 0x0, 0xffffffff, 3),		// 0x20 - user data segment
-	SEG_NULL				// 0x28 - tss, initialized in
+	(Segdesc)SEG_NULL,				// 0x0 - unused (always faults)
+	(Segdesc)SEG(STA_X | STA_R, 0x0, 0xffffffff, 0),	// 0x8 - kernel code segment
+	(Segdesc)SEG(STA_W, 0x0, 0xffffffff, 0),		// 0x10 - kernel data segment
+	(Segdesc)SEG(STA_X | STA_R, 0x0, 0xffffffff, 3),	// 0x18 - user code segment
+	(Segdesc)SEG(STA_W, 0x0, 0xffffffff, 3),		// 0x20 - user data segment
+	(Segdesc)SEG_NULL				// 0x28 - tss, initialized in
 						// idt_init()
 };
 
