@@ -153,17 +153,17 @@ tarball: realclean
 # For test runs
 run:
 	$(V)$(MAKE) $(IMAGES)
-	$(QEMU) -no-kqemu -hda obj/kernel.img
+	$(QEMU) -hda obj/kernel.img
 
 run-gdb:
 	$(V)$(MAKE) $(IMAGES)
 	@echo "*** Now run 'gdb'." 1>&2
-	$(QEMU) -no-kqemu -s -S -hda obj/kernel.img
+	$(QEMU) -s -S -hda obj/kernel.img
 
 run-%:
 	$(V)rm -f $(OBJDIR)/kern/init.o $(IMAGES)
 	$(V)$(MAKE) "DEFS=-DTEST=_binary_obj_user_$*_start -DTESTSIZE=_binary_obj_user_$*_size" $(IMAGES)
-	$(QEMU) -no-kqemu -hda obj/kernel.img
+	$(QEMU) -hda obj/kernel.img
 
 which-qemu:
 	@echo $(QEMU)
