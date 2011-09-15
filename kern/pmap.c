@@ -104,7 +104,7 @@ mem_init(void)
 	struct Page *pp;
 	
 	// Remove this line when you're ready to test this function.
-	panic("mem_init: This function is not finished\n");
+	//panic("mem_init: This function is not finished\n");
 
 	// Find out how much memory the machine has ('npages' & 'n_base_pages')
 	i386_mem_detect();
@@ -117,7 +117,7 @@ mem_init(void)
 	// will help you catch bugs later.
 	//
 	// LAB 2: Your code here.
-
+	pages = (struct Page*)boot_alloc(sizeof(struct Page) * npages);	
 
 	// Now that we've allocated the 'pages' array, initialize it
 	// by putting all free physical pages onto a list.  After this point,
@@ -250,8 +250,18 @@ boot_alloc(uint32_t n)
 	// to a multiple of PGSIZE.
 	//
 	// LAB 2: Your code here.
+	if (n == 0)
+		return nextfree;
 
-	return NULL;
+	if (uint32_t(nextfree) - KERNBASE + n > npages * PGSIZE) {
+		panic("boot_alloc: no memory to alloc!");
+		//panic("nextfree=%x, n=%u, npages=%u, PGSIZE=%u\n");
+		return NULL;
+	}
+		
+	v = nextfree;
+	nextfree = round_up(nextfree + n, PGSIZE);
+	return v;
 }
 
 
@@ -302,14 +312,27 @@ page_init(void)
 	//     if you give it the right argument!)
 	//
 	// Change the code to reflect this.
+	physaddr_t physaddr, kern_end_phys;
+	uintptr_t kern_end_virt;
+
+	kern_end_virt = (uintptr_t)boot_alloc(0);
+	kern_end_phys = (physaddr_t)(kern_end_virt - KERNBASE);
+
 	free_pages = NULL;
 	for (size_t i = 0; i < npages; i++) {
 		// Initialize the page structure
-		pages[i].pp_ref = 0;
-		
+		physaddr = pages[i].physaddr();
+		if ( (physaddr > 0 && physaddr < IOPHYSMEM) ||
+		     (physaddr >= kern_end_phys) ) {
 		// Add it to the free list
-		pages[i].pp_next = free_pages;
-		free_pages = &pages[i];
+			pages[i].pp_ref = 0;
+			pages[i].pp_next = free_pages;
+			free_pages = &pages[i];
+		} else {
+		// Mark pages in use
+			pages[i].pp_ref = 1;
+			pages[i].pp_next = NULL;	
+		}
 	}
 }
 
@@ -331,8 +354,18 @@ page_init(void)
 struct Page *
 page_alloc()
 {
-	// Fill this function in
-	return 0;
+	struct Page *page;		
+
+	if (!free_pages)
+		return NULL;
+
+	page = free_pages;
+	free_pages = page->pp_next;
+	page->pp_next = NULL;
+
+	memset(page->data(), 0xcc, PGSIZE);
+	
+	return page;
 }
 
 // Return a page to the free list.
@@ -345,7 +378,12 @@ page_alloc()
 void
 page_free(struct Page *pp)
 {
-	// Fill this function in
+	assert(pp->pp_ref == 0);
+	
+	pp->pp_next = free_pages;
+	free_pages = pp;
+
+	memset(pp->data(), 0xcc, PGSIZE);
 }
 
 // Decrement the reference count on a page.
