@@ -155,6 +155,13 @@ mem_init(void)
 	// is 'bootstack' allocated?)
 	//
 	// LAB 2: Your code here.
+	
+	// How can i mark out [KSTACKTOP-PTSIZE, KSTACKTOP-KSTKSIZE) -- not present?
+
+	// Map the kernel stack
+	page_map_segment(kern_pgdir, KSTACKTOP-KSTKSIZE, KSTKSIZE, 
+			PADDR(bootstack), PTE_W);
+	cprintf("Map the kernel stack done!\n");
 
 	// Map all of physical memory at KERNBASE.
 	// I.e., the VA range [KERNBASE, 2^32) should map to
@@ -164,6 +171,7 @@ mem_init(void)
 	// Permissions: kernel RW, user NONE
 	//
  	// LAB 2: Your code here.
+	page_map_segment(kern_pgdir, KERNBASE, 0xffffffff-KERNBASE, 0, PTE_W);
 
 	// Check that the initial page directory has been set up correctly.
 	boot_mem_check();
@@ -410,8 +418,31 @@ page_decref(struct Page *pp)
 pte_t *
 pgdir_walk(pde_t *pgdir, uintptr_t va, int create)
 {
-	// Fill this function in
-	return NULL;
+	pde_t *pde_entry;
+	pte_t *pte, *pte_entry;
+	struct Page *pp;
+
+	// Walk page directory
+	pde_entry = &pgdir[PDX(va)];
+	if ( !((*pde_entry) & PTE_P) ) {
+		// Page table is not presented.
+		if (!create) return NULL;
+		pp = page_alloc();
+		if (pp == NULL) {
+			// No memory
+			return NULL;
+		}
+		++pp->pp_ref;
+		memset(pp->data(), 0x0, PGSIZE);
+		
+		*pde_entry = (pde_t)(pp->physaddr() | PTE_AVAIL | PTE_P | PTE_W);	
+	}
+
+	// fetch page table entry
+	pte = (pte_t*)KADDR(PTE_ADDR(*pde_entry));
+	pte_entry = &pte[PTX(va)];
+
+	return pte_entry;
 }
 
 // Maps the physical page 'pp' at virtual address 'va'.
@@ -436,7 +467,29 @@ pgdir_walk(pde_t *pgdir, uintptr_t va, int create)
 int
 page_insert(pde_t *pgdir, struct Page *pp, uintptr_t va, int perm) 
 {
-	// Fill this function in
+	pte_t *pte;
+	struct Page *pp1;
+
+	pte = pgdir_walk(pgdir, va, 1);
+	if (pte == NULL)
+		return -E_NO_MEM;
+
+	if ( (*pte) & PTE_P ) {
+		// Page already mapped.
+		pp1 = &pages[PGNUM(*pte)];
+		if (pp != pp1)
+			page_remove(pgdir, va);
+	
+		*pte = pp->physaddr() | perm | PTE_P;
+		if (pp != pp1)
+			++pp->pp_ref;
+		
+		tlb_invalidate(pgdir, va);
+	} else {
+		*pte = pp->physaddr() | perm | PTE_P;
+		++pp->pp_ref;
+	}	
+
 	return 0;
 }
 
@@ -450,8 +503,26 @@ page_insert(pde_t *pgdir, struct Page *pp, uintptr_t va, int perm)
 struct Page *
 page_lookup(pde_t *pgdir, uintptr_t va, pte_t **pte_store)
 {
-	// Fill this function in
-	return NULL;
+	pte_t *pte;
+	struct Page *pp;
+
+	pte = pgdir_walk(pgdir, va, 0);
+	if (pte == NULL) {
+		// Page table is not presented
+		return NULL;
+	}
+
+	if (pte_store != NULL)
+		(*pte_store) = pte;
+
+	if ( !((*pte) & PTE_P) ) {
+		// Page is not presented.
+		return NULL;
+	}
+		
+	pp = &pages[PGNUM(*pte)];
+
+	return pp;
 }
 
 // Unmaps the physical page at virtual address 'va'.
@@ -470,7 +541,16 @@ page_lookup(pde_t *pgdir, uintptr_t va, pte_t **pte_store)
 void
 page_remove(pde_t *pgdir, uintptr_t va)
 {
-	// Fill this function in
+	struct Page *pp;
+	pte_t *pte;
+	
+	pp = page_lookup(pgdir, va, &pte);
+	if (pp == NULL)
+		return;
+
+	page_decref(pp);
+	(*pte) = 0;
+	tlb_invalidate(pgdir, va);
 }
 
 // Invalidate a TLB entry, but only if the page tables being
@@ -495,7 +575,17 @@ static void
 page_map_segment(pte_t *pgdir, uintptr_t la, size_t size, physaddr_t pa,
 		 int perm)
 {
-	// LAB 2: Your code here.
+	uintptr_t _la;
+	physaddr_t _pa;
+	pte_t *pte;
+
+	for (_la = la, _pa = pa; _la < la + size; _la += PGSIZE, _pa += PGSIZE) {
+		pte = pgdir_walk(pgdir, _la, 1);
+		assert(pte != NULL);
+		*pte = _pa | perm | PTE_P; 
+		if ( _la + PGSIZE == 0 )
+			break;
+	}
 }
 
 
@@ -575,7 +665,7 @@ boot_mem_check(void)
 	// check kernel stack
 	for (i = 0; i < KSTKSIZE; i += PGSIZE)
 		assert(check_va2pa(kern_pgdir, KSTACKTOP - KSTKSIZE + i) == PADDR(bootstack) + i);
-
+	
 	// check for zero/non-zero in PDEs
 	for (i = 0; i < NPDENTRIES; i++) {
 		switch (i) {
@@ -619,18 +709,18 @@ page_check(void)
 
 	// there is no page allocated at address 0
 	assert(page_lookup(kern_pgdir, 0, &ptep) == NULL);
-
+		
 	// there is no free memory, so we can't allocate a page table 
 	assert(page_insert(kern_pgdir, pp1, 0, 0) < 0);
-
+	
 	// free pp0 and try again: pp0 should be used for page table
 	page_free(pp0);
 	assert(page_insert(kern_pgdir, pp1, 0, 0) == 0);
 	assert(PTE_ADDR(kern_pgdir[0]) == pp0->physaddr());
-	assert(check_va2pa(kern_pgdir, 0) == pp1->physaddr());
+	assert(check_va2pa(kern_pgdir, 0) == pp1->physaddr());	
 	assert(pp1->pp_ref == 1);
 	assert(pp0->pp_ref == 1);
-
+	
 	// should be able to map pp2 at PGSIZE because pp0
 	// is already allocated for page table
 	assert(page_insert(kern_pgdir, pp2, PGSIZE, 0) == 0);
