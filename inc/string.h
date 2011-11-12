@@ -2,6 +2,7 @@
 #define JOS_INC_STRING_H
 
 #include <inc/types.h>
+extern "C" {
 
 int	strlen(const char *s);
 int	strnlen(const char *s, size_t size);
@@ -21,4 +22,5 @@ void *	memfind(const void *s, int c, size_t len);
 
 long	strtol(const char *s, char **endptr, int base);
 
+}
 #endif /* not JOS_INC_STRING_H */

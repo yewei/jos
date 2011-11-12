@@ -1,6 +1,7 @@
 // Basic string routines.  Not hardware optimized, but not shabby.
 
 #include <inc/string.h>
+extern "C" {
 
 int
 strlen(const char *s)
@@ -215,3 +216,4 @@ strtol(const char *s, char **endptr, int base)
 	return (neg ? -val : val);
 }
 
+}
