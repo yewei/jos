@@ -41,7 +41,6 @@ run () {
 
 	cp /dev/null jos.in
 	cp /dev/null jos.out
-	echo $qemu -nographic -hda obj/kernel.img -serial null -parallel file:jos.out
 
 	ulimit -t $timeout
 	(
@@ -59,63 +58,227 @@ run () {
 			psleep 0.05
 		done
 		echo "quit"
-	) | $qemu -nographic -hda obj/kernel.img -serial null -parallel file:jos.out -monitor stdio >$out
+	) | (
+		$qemu -nographic -hda obj/kernel.img -serial null -parallel file:jos.out -monitor stdio >$out 2>&1
+		echo "Welcome to the JOS kernel monitor (NOT)" >>jos.out
+	)
+}
+
+
+# Usage: runtest <tagname> <defs> <strings...>
+runtest () {
+	perl -e "print '$1: '"
+	rm -f obj/kern/init.o obj/kernel obj/kernel.img 
+	[ "$preservefs" = y ] || rm -f obj/fs.img
+	if $verbose
+	then
+		echo "$make $2... "
+	fi
+	$make $2 >$out
+	if [ $? -ne 0 ]
+	then
+		echo $make $2 failed 
+		exit 1
+	fi
+	run
+	if [ ! -s jos.out ]
+	then
+		echo 'no jos.out'
+	else
+		shift
+		shift
+		continuetest "$@"
+	fi
+}
+
+quicktest () {
+	perl -e "print '$1: '"
+	shift
+	continuetest "$@"
+}
+
+continuetest () {
+	okay=yes
+
+	not=false
+	for i
+	do
+		if [ "x$i" = "x!" ]
+		then
+			not=true
+		elif $not
+		then
+			if egrep "^$i\$" jos.out >/dev/null
+			then
+				echo "got unexpected line '$i'"
+				if $verbose
+				then
+					exit 1
+				fi
+				okay=no
+			fi
+			not=false
+		else
+			egrep "^$i\$" jos.out >/dev/null
+			if [ $? -ne 0 ]
+			then
+				echo "missing '$i'"
+				if $verbose
+				then
+					exit 1
+				fi
+				okay=no
+			fi
+			not=false
+		fi
+	done
+	if [ "$okay" = "yes" ]
+	then
+		score=`expr $pts + $score`
+		echo OK
+	else
+		echo WRONG
+	fi
+}
+
+# Usage: runtest1 [-tag <tagname>] <progname> [-Ddef...] STRINGS...
+runtest1 () {
+	if [ $1 = -tag ]
+	then
+		shift
+		tag=$1
+		prog=$2
+		shift
+		shift
+	else
+		tag=$1
+		prog=$1
+		shift
+	fi
+	runtest1_defs=
+	while expr "x$1" : 'x-D.*' >/dev/null; do
+		runtest1_defs="DEFS+='$1' $runtest1_defs"
+		shift
+	done
+	runtest "$tag" "DEFS='-DTEST=_binary_obj_user_${prog}_start' DEFS+='-DTESTSIZE=_binary_obj_user_${prog}_size' $runtest1_defs" "$@"
 }
 
 
 
-keystrokes="exit;"
-$make
-run
-
 score=0
 
-echo_n "Physical page allocator: "
- if grep "page_alloc_check() succeeded!" jos.out >/dev/null
- then
-	score=`expr 15 + $score`
-	echo OK
- else
-	echo WRONG
- fi
+runtest1 hello \
+	'.00000000. new env 00001000' \
+	'hello, world' \
+	'i am environment 00001000' \
+	'.00001000. exiting gracefully' \
+	'.00001000. free env 00001000' \
+	'Idle loop - nothing more to do!'
 
-echo_n "Page management: "
- if grep "page_check() succeeded!" jos.out >/dev/null
- then
-	score=`expr 20 + $score`
-	echo OK
- else
-	echo WRONG
- fi
+# the [00001000] tags should have [] in them, but that's 
+# a regular expression reserved character, and i'll be damned if
+# I can figure out how many \ i need to add to get through 
+# however many times the shell interprets this string.  sigh.
 
-echo_n "Kernel page directory: "
- if grep "boot_mem_check() succeeded!" jos.out >/dev/null
- then
-	score=`expr 15 + $score`
-	echo OK
- else
-	echo WRONG
- fi
+runtest1 buggyhello \
+	'.00001000. user_mem_check va 00000...' \
+	'.00001000. free env 00001000'
 
-echo_n "Kernel breakpoint interrupt: "
- if grep "^TRAP frame at 0x" jos.out >/dev/null \
-     && grep "  trap 0x00000003 Breakpoint" jos.out >/dev/null
- then
-	score=`expr 10 + $score`
-	echo OK
- else
-	echo WRONG
- fi
+runtest1 evilhello \
+	'.00001000. user_mem_check va f0100...' \
+	'.00001000. free env 00001000'
 
-echo_n "Returning from breakpoint interrupt: "
- if grep "Breakpoint succeeded" jos.out >/dev/null
- then
-	score=`expr 10 + $score`
-	echo OK
- else
-	echo WRONG
- fi
+runtest1 divzero \
+	! '1/0 is ........!' \
+	'Incoming TRAP frame at 0xefffff..' \
+	'  trap 0x00000000 Divide error' \
+	'  eip  0x008.....' \
+	'  ss   0x----0023' \
+	'.00001000. free env 00001000'
 
-echo "Score: $score/70"
+runtest1 breakpoint \
+	'Welcome to the JOS kernel monitor!' \
+	'Incoming TRAP frame at 0xefffffbc' \
+	'  trap 0x00000003 Breakpoint' \
+	'  eip  0x008.....' \
+	'  ss   0x----0023' \
+	! '.00001000. free env 00001000'
+
+runtest1 softint \
+	'Welcome to the JOS kernel monitor!' \
+	'Incoming TRAP frame at 0xefffffbc' \
+	'  trap 0x0000000d General Protection' \
+	'  eip  0x008.....' \
+	'  ss   0x----0023' \
+	'.00001000. free env 00001000'
+
+runtest1 badsegment \
+	'Incoming TRAP frame at 0xefffffbc' \
+	'  trap 0x0000000d General Protection' \
+	'  err  0x00000028' \
+	'  eip  0x008.....' \
+	'  ss   0x----0023' \
+	'.00001000. free env 00001000'
+
+runtest1 faultread \
+	! 'I read ........ from location 0!' \
+	'.00001000. user fault va 00000000 ip 008.....' \
+	'Incoming TRAP frame at 0xefffffbc' \
+	'  trap 0x0000000e Page Fault' \
+	'  err  0x00000004' \
+	'.00001000. free env 00001000'
+
+runtest1 faultreadkernel \
+	! 'I read ........ from location 0xf0100000!' \
+	'.00001000. user fault va f0100000 ip 008.....' \
+	'Incoming TRAP frame at 0xefffffbc' \
+	'  trap 0x0000000e Page Fault' \
+	'  err  0x00000005' \
+	'.00001000. free env 00001000' \
+
+runtest1 faultwrite \
+	'.00001000. user fault va 00000000 ip 008.....' \
+	'Incoming TRAP frame at 0xefffffbc' \
+	'  trap 0x0000000e Page Fault' \
+	'  err  0x00000006' \
+	'.00001000. free env 00001000'
+
+runtest1 faultwritekernel \
+	'.00001000. user fault va f0100000 ip 008.....' \
+	'Incoming TRAP frame at 0xefffffbc' \
+	'  trap 0x0000000e Page Fault' \
+	'  err  0x00000007' \
+	'.00001000. free env 00001000'
+
+runtest1 testbss \
+	'Making sure bss works right...' \
+	'Yes, good.  Now doing a wild write off the end...' \
+	'.00001000. user fault va 00c..... ip 008.....' \
+	'.00001000. free env 00001000'
+
+pts=30
+runtest1 dumbfork \
+	'.00000000. new env 00001000' \
+	'.00001000. new env 00001001' \
+	'0: I am the parent!' \
+	'9: I am the parent!' \
+	'0: I am the child!' \
+	'9: I am the child!' \
+	'19: I am the child!' \
+	'.00001000. exiting gracefully' \
+	'.00001000. free env 00001000' \
+	'.00001001. exiting gracefully' \
+	'.00001001. free env 00001001'
+
+pts=10
+keystrokes='backtrace;'
+runtest1 -tag 'breakpoint [backtrace]' breakpoint \
+	'^Stack backtrace:' \
+	' *user/breakpoint.c:.*' \
+	' *lib/libmain.c:.*' \
+	' *lib/entry.S:.*'
+
+echo Score: $score/100
+
 
 

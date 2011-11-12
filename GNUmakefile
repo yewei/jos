@@ -135,6 +135,8 @@ USER_CXXFLAGS := $(USER_CFLAGS) -fno-exceptions -fno-rtti
 # Include Makefrags for subdirectories
 include boot/Makefrag
 include kern/Makefrag
+include lib/Makefrag
+include user/Makefrag
 
 
 IMAGES = $(OBJDIR)/kernel.img
@@ -159,12 +161,22 @@ tarball: realclean
 	$(V)egrep=`(test -x /bin/egrep && echo /bin/egrep) || echo grep -E`; tar cf - `find . -type f -print | $$egrep -v '/(CVS|\.svn|\.git|jos\.out|jos\.log)(/|$$)' | grep -v '/lab[0-9].*\.tar\.gz$$'` | gzip > lab$(LAB)-$(USER).tar.gz
 
 # For test runs
+ifeq ($(O),1)
+QEMU += -parallel stdio
+endif
+
 run:
 	$(V)$(MAKE) $(IMAGES)
 	$(QEMU) -hda obj/kernel.img
 
 run-gdb:
 	$(V)$(MAKE) $(IMAGES)
+	@echo "*** Now run 'gdb'." 1>&2
+	$(QEMU) -s -S -hda obj/kernel.img
+
+run-gdb-%:
+	$(V)rm -f $(OBJDIR)/kern/init.o $(IMAGES)
+	$(V)$(MAKE) "DEFS=-DTEST=_binary_obj_user_$*_start -DTESTSIZE=_binary_obj_user_$*_size" $(IMAGES)
 	@echo "*** Now run 'gdb'." 1>&2
 	$(QEMU) -s -S -hda obj/kernel.img
 

@@ -7,6 +7,7 @@
 #endif
 #include <inc/memlayout.h>
 #include <inc/assert.h>
+struct Env;
 
 // Takes a kernel virtual address 'kva' -- an address that points above
 // KERNBASE, where the machine's maximum 256MB of physical memory is mapped --
@@ -49,5 +50,21 @@ void	page_decref(struct Page *pp);
 pte_t *	pgdir_walk(pde_t *pgdir, uintptr_t va, int create);
 
 void	tlb_invalidate(pde_t *pgdir, uintptr_t va);
+
+int	user_mem_check(Env *env, uintptr_t va, size_t len, int perm);
+void	user_mem_assert(Env *env, uintptr_t va, size_t len, int perm);
+
+// These template versions simplify the use of user_mem_* with pointers.
+template <typename T>
+static inline int user_mem_check(Env *env, T *va, size_t len, int perm)
+{
+	return user_mem_check(env, reinterpret_cast<uintptr_t>(va), len, perm);
+}
+
+template <typename T>
+static inline void user_mem_assert(Env *env, T *va, size_t len, int perm)
+{
+	user_mem_assert(env, reinterpret_cast<uintptr_t>(va), len, perm);
+}
 
 #endif /* !JOS_KERN_PMAP_H */
