@@ -69,6 +69,13 @@ void
 env_init(void)
 {
 	// LAB 3: Your code here.
+	int idx;
+	for (idx = NENV-1; idx >= 0; idx--) {
+		envs[idx].env_status = ENV_FREE;
+		envs[idx].env_id = 0;
+		envs[idx].env_next = free_envs;
+		free_envs = &envs[idx];
+	}	
 }
 
 
@@ -86,6 +93,11 @@ env_mem_init(Env *e)
 	unsigned i;
 	int r;
 	Page *p = NULL;
+	pde_t *from_dir;
+	pde_t *to_dir;	
+	pte_t *from_pt;
+	pte_t *to_pt;
+	unsigned long size, nr;
 
 	// Allocate a page for the page directory
 	if (!(p = page_alloc()))
@@ -106,7 +118,58 @@ env_mem_init(Env *e)
 	//	env_pgdir's pp_ref!
 
 	// LAB 3: Your code here.
-
+	memset(p->data(), 0x0, PGSIZE);
+	p->pp_ref++;
+	e->env_pgdir = (pde_t *)(p->data());
+	
+	from_dir = &kern_pgdir[PDX(UTOP)];
+	to_dir = &(e->env_pgdir[PDX(UTOP)]);	
+	size = (UVPT - UTOP) >> PTSHIFT;
+	for (; size--> 0; from_dir++, to_dir++) {
+		if ( !(PTE_P & *from_dir) )
+			continue;
+		//allocate a page for page table.
+		p = page_alloc();
+		if ( p == NULL)
+			return -E_NO_MEM;
+		p->pp_ref++;
+		// UTOP-->UVPT is readonly map for user
+		*to_dir = (pde_t)(p->physaddr() | PTE_AVAIL | PTE_P | PTE_U);	
+		from_pt = (pte_t *)KADDR(PTE_ADDR(*from_dir));
+		to_pt = (pte_t *)KADDR(PTE_ADDR(*to_dir)); 
+		for (nr = 0; nr < NPTENTRIES; nr++) {
+			*to_pt = *from_pt;
+			*to_pt &= ~PTE_W;
+			*to_pt |= PTE_U;
+			to_pt++;
+			from_pt++;
+		}
+	}
+	
+	from_dir = &kern_pgdir[PDX(ULIM)];
+	to_dir = &(e->env_pgdir[PDX(ULIM)]);	
+	size = (~0 - ULIM) >> PTSHIFT; 
+	for (; size--> 0; from_dir++, to_dir++) {
+		if ( !(PTE_P & *from_dir) )
+			continue;
+		//allocate a page for page table.
+		p = page_alloc();
+		if ( p == NULL)
+			return -E_NO_MEM;
+		p->pp_ref++;
+		// ULIM-->~0 is accessed when user swtiches to kernel mode
+		//*to_dir = (pde_t)(p->physaddr() | PTE_AVAIL | PTE_P | PTE_W);	
+		*to_dir = (pde_t)(p->physaddr() | PTE_AVAIL | PTE_P | PTE_W | PTE_U);	
+		from_pt = (pte_t *)KADDR(PTE_ADDR(*from_dir));
+		to_pt = (pte_t *)KADDR(PTE_ADDR(*to_dir)); 
+		for (nr = 0; nr < NPTENTRIES; nr++) {
+			*to_pt = *from_pt;
+			//*to_pt |= PTE_U;
+			to_pt++;
+			from_pt++;
+		}
+	}
+	
 	// Recursively insert 'kern_pgdir' in itself as a page table, to form
 	// a read-only virtual page table at virtual address UVPT.
 	// (For now, you don't have understand the greater purpose of the
@@ -190,6 +253,19 @@ segment_alloc(Env *e, uintptr_t va, size_t len)
 	// Hint: It is easier to use segment_alloc if the caller can pass
 	//   'va' and 'len' values that are not page-aligned.
 	//   You should round va down, and round len up.
+	unsigned long _va;
+	struct Page *pg;
+	int err;
+
+	va = round_down(va, PGSIZE);
+	len = round_up(len, PGSIZE);
+
+	for (_va = va; _va < va + len; _va += PGSIZE) {
+		pg = page_alloc();
+		assert(pg != NULL);
+		err = page_insert(e->env_pgdir, pg, _va, PTE_USER);
+		assert(err == 0);
+	}
 }
 
 
@@ -244,11 +320,45 @@ load_elf(Env *e, uint8_t *binary, size_t size)
 	//  What?  (See env_run() below.)
 
 	// LAB 3: Your code here.
+	struct Elf *elf_hdr = (struct Elf*)binary;
+	struct Proghdr *ph, *eph;
+	unsigned long va;
+	struct Page *pg;
+	int i;
+
+	if (elf_hdr->e_magic != ELF_MAGIC)
+		panic("Invalid binary file!\n");
+	
+	// use env->env_pgdir temporaly, this make elf
+	// segment copy to its virtual address easily.
+	lcr3(PADDR(e->env_pgdir));
+
+	ph = (struct Proghdr *)((uint8_t *)elf_hdr + elf_hdr->e_phoff);
+	//eph = ph + elf_hdr->e_phnum;
+	
+	//for (; ph < eph; ph++) {
+	for (i = 0; i < elf_hdr->e_phnum; i++, ph++) {
+		if (ph->p_type != ELF_PROG_LOAD) {
+			continue;
+		}
+
+		segment_alloc(e, ph->p_va, ph->p_memsz);
+		memcpy((void *)ph->p_va, (void *)(((char *)elf_hdr) + ph->p_offset), ph->p_filesz);
+		//memcpy((void *)ph->p_va, (void *)(elf_hdr + ph->p_offset), ph->p_filesz);
+		va = ph->p_va + ph->p_filesz;
+		for (; va < ph->p_va + ph->p_memsz; va++)
+			*((uint8_t *) va) = 0;
+	}
+	lcr3(PADDR(kern_pgdir));
+
+	//set the entry point of the program
+	e->env_tf.tf_eip = elf_hdr->e_entry;
 
 	// Now map one page for the program's initial stack
 	// at virtual address USTACKTOP - PGSIZE.
-
 	// LAB 3: Your code here.
+	pg = page_alloc();
+	page_insert(e->env_pgdir, pg, USTACKTOP - PGSIZE, PTE_W | PTE_U);
 }
 
 
@@ -260,6 +370,10 @@ void
 env_create(uint8_t *binary, size_t size)
 {
 	// LAB 3: Your code here.
+	Env *env;
+	
+	env_alloc(&env, 0);
+	load_elf(env, binary, size);
 }
 
 
@@ -368,7 +482,14 @@ env_run(Env *e)
 	//	   e->env_tf to sensible values.
 	
 	// LAB 3: Your code here.
+	if ( curenv != e ) {
+		// a context switch
+		curenv = e;
+		e->env_runs++;
+		lcr3(PADDR(e->env_pgdir));
+	}
 
+	env_iret(&e->env_tf);
         panic("env_run not yet implemented");
 }
 

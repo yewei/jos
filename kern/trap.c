@@ -187,11 +187,12 @@ trap(struct Trapframe *tf)
 	case T_OFLOW:
 	case T_BOUND:
 	case T_GPFLT:
-		cprintf("trigger interrupt/trap %s\n", trapname(tf->tf_trapno));
-		break;
 
 	// Handle page faults (T_PGFLT).
 	// LAB 3: Your code here.
+	case T_PGFLT:
+		cprintf("trigger interrupt/trap %s\n", trapname(tf->tf_trapno));
+		panic("unhandled page faults");
 
 	// Handle system calls (T_SYSCALL).
 	// LAB 3: Your code here.

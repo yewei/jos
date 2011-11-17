@@ -123,6 +123,7 @@ mem_init(void)
 	// Allocate 'envs', an array of size 'NENV' of 'Env' structures.
 	//
 	// LAB 3: Your code here.
+	envs = (struct Env*)boot_alloc(sizeof(struct Env) * NENV);
 
 
 	// Now that we've allocated the 'pages' array, initialize it
@@ -167,7 +168,6 @@ mem_init(void)
 	// Map the kernel stack
 	page_map_segment(kern_pgdir, KSTACKTOP-KSTKSIZE, KSTKSIZE, 
 			PADDR(bootstack), PTE_W);
-	cprintf("Map the kernel stack done!\n");
 
 	// Map all of physical memory at KERNBASE.
 	// I.e., the VA range [KERNBASE, 2^32) should map to
@@ -188,6 +188,8 @@ mem_init(void)
 	// All permissions are kernel R, user R.
 	//
 	// LAB 3: Your code here.
+	page_map_segment(kern_pgdir, UPAGES, sizeof(struct Page)*npages, PADDR(pages), PTE_U);
+	page_map_segment(kern_pgdir, UENVS, sizeof(struct Env)*NENV, PADDR(envs), PTE_U);
 
 	// Check that the initial page directory has been set up correctly.
 	boot_mem_check();
@@ -451,7 +453,9 @@ pgdir_walk(pde_t *pgdir, uintptr_t va, int create)
 		++pp->pp_ref;
 		memset(pp->data(), 0x0, PGSIZE);
 		
-		*pde_entry = (pde_t)(pp->physaddr() | PTE_AVAIL | PTE_P | PTE_W);	
+		// we set all L2 page table entries to PTE_USER,
+		// and use L1 entries to identify U/S access.
+		*pde_entry = (pde_t)(pp->physaddr() | PTE_USER);	
 	}
 
 	// fetch page table entry
